@@ -373,7 +373,7 @@ test2 <- training(split_2)
 validation2 <- testing(split_2)
 
 #Logit Model#
-Model_13 <- glm(Winner ~ budget + gross + votes + score, data = train2, family = binomial(link="logit"))
+Model_13 <- glm(Winner ~ budget + gross + votes + score + runtime, data = train2, family = binomial(link="logit"))
 summary(Model_13)
 
 Test_Stat<-Model_13$null.deviance-Model_13$deviance #difference in deviance
@@ -387,5 +387,77 @@ Predictions_13_Out <- predict(Model_13, test2, type = "response")
 confusion<-table(Predictions_13_In, train2$Winner == 1)
 confusion
 
+confusion_out<-table(Predictions_13_Out, test2$Winner == 1)
+
 confusionMatrix(confusion, positive='TRUE')
 confusionMatrix(table(Predictions_13_In >= 0.5, train2$Winner == 1), positive='TRUE')
+
+confusionMatrix(confusion_out, positive='TRUE')
+confusionMatrix(table(Predictions_13_Out >= 0.5, test2$Winner == 1), positive='TRUE')
+
+
+#Porbit Model#
+Model_14 <- glm(Winner ~ budget + gross + votes + score + runtime, data = train2, family = binomial(link="probit"))
+summary(Model_14)
+
+Predictions_14_In <- predict(Model_14, train2, type = "response")
+Predictions_14_Out <- predict(Model_14, test2, type = "response")
+
+confusion3<-table(Predictions_14_In, train2$Winner == 1)
+confusion
+
+confusion4<-table(Predictions_13_Out, test2$Winner == 1)
+
+confusionMatrix(confusion3, positive='TRUE')
+confusionMatrix(table(Predictions_14_In >= 0.5, train2$Winner == 1), positive='TRUE')
+
+confusionMatrix(confusion4, positive='TRUE')
+confusionMatrix(table(Predictions_14_Out >= 0.5, test2$Winner == 1), positive='TRUE')
+
+#ROC and AUC#
+library(tidymodels)
+library(pROC)
+pva <- data.frame(preds = Predictions_13_In, acutal = factor(train2$Winner))
+roc_obj <- roc(pva$acutal, pva$preds)
+plot(roc_obj, col = "blue", main = "ROC Curve")
+
+auc <- auc(roc_obj)
+auc
+
+pva2 <- data.frame(preds = Predictions_14_In, acutal = factor(train2$Winner))
+roc_obj <- roc(pva2$acutal, pva2$preds)
+plot(roc_obj, col = "red", main = "ROC Curve")
+
+auc <- auc(roc_obj)
+auc
+
+#SVM Classfication#
+kern_type <- "radial"
+
+SVM_Model15<- svm(Winner ~ budget + gross + votes + score + runtime, 
+                data = train2, 
+                type = "C-classification", #set to "eps-regression" for numeric prediction
+                kernel = kern_type,
+                cost=1,                   #REGULARIZATION PARAMETER
+                gamma = 1/(ncol(training)-1), #DEFAULT KERNEL PARAMETER
+                coef0 = 0,                    #DEFAULT KERNEL PARAMETER
+                degree=2,                     #POLYNOMIAL KERNEL PARAMETER
+                scale = FALSE)                #RESCALE DATA? (SET TO TRUE TO NORMALIZE)
+summary(SVM_Model15)
+
+(E_IN_15<-1-mean(predict(SVM_Model15, train2)==train2$Winner))
+(E_OUT_15<-1-mean(predict(SVM_Model15, test2)==test2$Winner))
+
+as.factor(train2$Winner)
+
+tunxe_control<-tune.control(cross=10) #
+TUNE <- tune.svm(x = train2[,c(36,37,42,43,45)],
+                 y = train2[,31],
+                 type = "C-classification",
+                 kernel = kern_type,
+                 tunecontrol=tune_control,
+                 cost=c(.01, .1, 1, 10, 100, 1000), #REGULARIZATION PARAMETER
+                 gamma = 1/(ncol(train2)-1), #KERNEL PARAMETER
+                 coef0 = 0,           #KERNEL PARAMETER
+                 degree = 2) 
+str(train2)

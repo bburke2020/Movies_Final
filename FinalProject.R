@@ -448,11 +448,11 @@ summary(SVM_Model15)
 (E_IN_15<-1-mean(predict(SVM_Model15, train2)==train2$Winner))
 (E_OUT_15<-1-mean(predict(SVM_Model15, test2)==test2$Winner))
 
-as.factor(train2$Winner)
+Oscars$Winner<-as.factor(Oscars$Winner)
 
 tunxe_control<-tune.control(cross=10) #
 TUNE <- tune.svm(x = train2[,c(36,37,42,43,45)],
-                 y = train2[,31],
+                 y = factor(train2$Winner),
                  type = "C-classification",
                  kernel = kern_type,
                  tunecontrol=tune_control,
@@ -460,4 +460,44 @@ TUNE <- tune.svm(x = train2[,c(36,37,42,43,45)],
                  gamma = 1/(ncol(train2)-1), #KERNEL PARAMETER
                  coef0 = 0,           #KERNEL PARAMETER
                  degree = 2) 
-str(train2)
+
+print(TUNE)
+
+
+SVM_Retune15<- svm(Winner ~ budget + gross + votes + score + runtime, 
+                 data = train2, 
+                 type = "C-classification", 
+                 kernel = kern_type,
+                 degree = TUNE$best.parameters$degree,
+                 gamma = TUNE$best.parameters$gamma,
+                 coef0 = TUNE$best.parameters$coef0,
+                 cost = TUNE$best.parameters$cost,
+                 scale = FALSE)
+(E_IN_RETUNE<-1-mean(predict(SVM_Retune15, train2)==train2$Winner))
+(E_OUT_RETUNE<-1-mean(predict(SVM_Retune15, test2)==test2$Winner))
+
+
+#Classfication Tree#
+
+class_spec <- decision_tree(min_n = 20 , #minimum number of observations for split
+                            tree_depth = 30, #max tree depth
+                            cost_complexity = 0.01)  %>% #regularization parameter
+  set_engine("rpart") %>%
+  set_mode("classification")
+print(class_spec)
+
+class_16 <- factor(Winner) ~ gross + votes + runtime + score
+class_tree16 <- class_spec %>%
+  fit(formula = class_16, data = train2)
+print(class_tree16)
+
+class_tree16$fit %>%
+  rpart.plot(type = 4, extra = 2, roundint = FALSE)
+
+plotcp(class_tree16$fit)
+
+pred_class16 <- predict(class_tree, new_data = test, type="class") %>%
+  bind_cols(test) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+
+pred_prob16 <- predict(class_tree, new_data = test, type="prob") %>%
+  bind_cols(test)

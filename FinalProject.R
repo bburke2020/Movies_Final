@@ -241,7 +241,7 @@ PRED_9_OUT <- predict(SVM_Model2, test)
 
 
 #SPECIFYING THE CLASSIFICATION TREE MODEL
-class_spec <- decision_tree(min_n = 20 , #minimum number of observations for split
+reg_spec <- decision_tree(min_n = 20 , #minimum number of observations for split
                             tree_depth = 30, #max tree depth
                             cost_complexity = 0.01)  %>% #regularization parameter
   set_engine("rpart") %>%
@@ -249,13 +249,143 @@ class_spec <- decision_tree(min_n = 20 , #minimum number of observations for spl
 print(class_spec)
 
 #ESTIMATING THE MODEL (CAN BE DONE IN ONE STEP ABOVE WITH EXTRA %>%)
-class_fmla <- budget ~ rating + genre + score + votes + runtime
-class_tree <- class_spec %>%
+rg_fmla <- gross ~ rating + genre + score + votes + runtime + budget
+reg_tree <- class_spec %>%
   fit(formula = class_fmla, data = train)
-print(class_tree)
+print(reg_tree)
 
 #VISUALIZING THE CLASSIFICATION TREE MODEL:
-class_tree$fit %>%
-  rpart.plot(type = 4, extra = 2, roundint = FALSE)
+reg_tree$fit %>%
+  rpart.plot(type = 4, roundint = FALSE)
 
-plotcp(class_tree$fit)
+plotcp(reg_tree$fit)
+
+
+pred_10_in <- predict(reg_tree, new_data = train) %>%
+  bind_cols(train)
+pred_10_out <- predict(reg_tree, new_data = test) %>%
+  bind_cols(test)
+
+RMSE_10_Out <- rmse(pred_10_out, estimate=.pred, truth=gross)
+RMSE_10_In <- rmse(pred_10_in, estimate=.pred, truth=gross)
+RMSE_10_In
+RMSE_10_Out
+
+#Tuning Decision Tree#
+Model <- gross ~ budget + score + votes + runtime
+tree_spec <- decision_tree(min_n = tune(),
+                           tree_depth = tune(),
+                           cost_complexity= tune()) %>%
+  set_engine("rpart") %>%
+  set_mode("regression")
+tree_grid <- grid_regular(parameters(tree_spec), levels = 3)
+tune_results <- tune_grid(tree_spec,
+                          Model, #MODEL FORMULA
+                          resamples = vfold_cv(train, v=3), #RESAMPLES / FOLDS
+                          grid = tree_grid, #GRID
+                          metrics = metric_set(rmse)) #BENCHMARK METRIC
+#RETRIEVE OPTIMAL PARAMETERS FROM CROSS-VALIDATION
+best_params <- select_best(tune_results)
+
+#FINALIZE THE MODEL SPECIFICATION
+final_spec <- finalize_model(tree_spec, best_params)
+
+#FIT THE FINALIZED MODEL
+final_model <- final_spec %>% fit(Model, train)
+pred_11_in <- predict(final_model, new_data = train) %>%
+  bind_cols(train)
+pred_11_out <- predict(final_model, new_data = test) %>%
+  bind_cols(test) 
+
+RMSE_11_Out <- rmse(pred_11_out, estimate=.pred, truth=gross)
+RMSE_11_In <- rmse(pred_11_in, estimate=.pred, truth=gross)
+RMSE_11_In
+RMSE_11_Out
+
+
+#Bagged Tree Model#
+spec_bagged <- bag_tree(min_n = 20 , #minimum number of observations for split
+                        tree_depth = 30, #max tree depth
+                        cost_complexity = 0.01, #regularization parameter
+                        class_cost = NULL)  %>% #for output class imbalance adjustment (binary data only)
+  set_mode("regression") %>% #can set to regression for numeric prediction
+  set_engine("rpart", times=100) #times = # OF ENSEMBLE MEMBERS IN FOREST
+spec_bagged
+bagged_forest <- spec_bagged %>%
+  fit(formula = Model, data = train)
+print(bagged_forest)
+pred_12_in <- predict(bagged_forest, new_data = train) %>%
+  bind_cols(train)
+pred_12_out <- predict(bagged_forest, new_data = test) %>%
+  bind_cols(test)
+
+RMSE_12_Out <- rmse(pred_12_out, estimate=.pred, truth=gross)
+RMSE_12_In <- rmse(pred_12_in, estimate=.pred, truth=gross)
+RMSE_12_In
+RMSE_12_Out
+
+spec_bagged_2 <- bag_tree(min_n = tune() , #minimum number of observations for split
+                          tree_depth = tune(), #max tree depth
+                          cost_complexity = tune(), #regularization parameter
+                          class_cost = tune())  %>% #for output class imbalance adjustment (binary data only)
+  set_mode("regression") %>% #can set to regression for numeric prediction
+  set_engine("rpart", times=100) #times = # OF ENSEMBLE MEMBERS IN FOREST
+spec_bagged_2
+
+tree_grid <- grid_regular(parameters(spec_bagged_2), levels = 3)
+tune_results <- tune_grid(spec_bagged_2,
+                          Model, #MODEL FORMULA
+                          resamples = vfold_cv(train, v=3), #RESAMPLES / FOLDS
+                          grid = tree_grid, #GRID
+                          metrics = metric_set(rmse)) #BENCHMARK METRIC
+#RETRIEVE OPTIMAL PARAMETERS FROM CROSS-VALIDATION
+best_params <- select_best(tune_results)
+
+#FINALIZE THE MODEL SPECIFICATION
+final_spec <- finalize_model(tree_spec, best_params)
+
+
+
+help("cbind")
+library(dplyr)
+oscars_df <- mutate(oscars_df, Winner = ifelse(oscars_df$Award == "Winner",1,0)) 
+colnames(movies_1)[colnames(movies_1) == "name"] <- "Film"                        
+merged_df <- left_join(oscars_df,movies_1, by = "Film")                          
+merged_2 <- subset(merged_df, !is.na(budget))
+merged_3 <- na.omit(merged_df)
+Oscars<- merged_2
+
+
+
+
+
+
+
+
+#Classification#
+set.seed(120)
+split<-initial_split(Oscars, prop=.7)
+train2<-training(split)
+holdout2<-testing(split)
+
+split_2 <- initial_split(holdout2, prop = .5)
+test2 <- training(split_2)
+validation2 <- testing(split_2)
+
+#Logit Model#
+Model_13 <- glm(Winner ~ budget + gross + votes + score, data = train2, family = binomial(link="logit"))
+summary(Model_13)
+
+Test_Stat<-Model_13$null.deviance-Model_13$deviance #difference in deviance
+Test_df<-Model_13$df.null-Model_13$df.residual #difference in degrees of freedom
+1-pchisq(Test_Stat, Test_df) #p-value for null hypothesis H_0:
+#the x-variables are not useful predictors of the categorical variable
+
+Predictions_13_In <- predict(Model_13, train2, type = "response")
+Predictions_13_Out <- predict(Model_13, test2, type = "response")
+
+confusion<-table(Predictions_13_In, train2$Winner == 1)
+confusion
+
+confusionMatrix(confusion, positive='TRUE')
+confusionMatrix(table(Predictions_13_In >= 0.5, train2$Winner == 1), positive='TRUE')

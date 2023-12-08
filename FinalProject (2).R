@@ -304,6 +304,7 @@ RMSE_11_Out
 
 
 #Bagged Tree Model#
+set.seed(123)
 spec_bagged <- bag_tree(min_n = 20 , #minimum number of observations for split
                         tree_depth = 30, #max tree depth
                         cost_complexity = 0.01, #regularization parameter
@@ -662,6 +663,9 @@ print(SVM_MultiClass)
 (E_IN_MultiClass<-1-mean(predict(SVM_MultiClass, train3)==train3$rating))
 (E_OUT_MultiClass<-1-mean(predict(SVM_MultiClass, test3)==test3$rating))
 
+Accuracy_1_in_mutli <- 1 -(E_IN_MultiClass<-1-mean(predict(SVM_MultiClass, train3)==train3$rating))
+Accuracy_1_out_mutli <- 1- (E_OUT_MultiClass<-1-mean(predict(SVM_MultiClass, test3)==test3$rating))
+
 #Tune SVM Model#
 tune_control<-tune.control(cross=10) #SET K-FOLD CV PARAMETERS
 TUNE_Class <- tune.svm(x = train3[,6],
@@ -693,8 +697,7 @@ svm_class_tune <- train(factor(rating) ~ gross + budget + score + runtime + vote
 library(rpart.plot)
 
 Multi_tree <- rpart(factor(rating) ~ gross + votes + runtime + score, data = train3, method = "class")
-pred_multi <- predict(Multi_tree, data = test3, type = "class")
-conf_matrix <- confusionMatrix(pred_multi, test3$rating)
+
 
 multiclass_spec <- decision_tree(min_n = 20 , #minimum number of observations for split
                             tree_depth = 30, #max tree depth
@@ -706,7 +709,7 @@ str(train)
 
 multi_class_m1<- factor(rating) ~ gross + votes + runtime + score
 Multi_class_tree <- multiclass_spec%>%
-  fit(formula = multi_class_m1, data = train)
+  fit(formula = factor(rating) ~ gross + votes + runtime + score, data = train3)
 print(Multi_class_tree)
 
 Multi_class_tree$fit %>%
@@ -714,13 +717,88 @@ Multi_class_tree$fit %>%
 
 plotcp(Multi_class_tree$fit)
 
-pred_multiclass <- predict(Multi_class_tree, new_data = train, type="class") %>%
-  bind_cols(train) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+pred_multiclass <- predict(Multi_class_tree, new_data = train3, type="class") %>%
+  bind_cols(train3) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
 
-pred_probmulti <- predict(Multi_class_tree, new_data = train, type="prob") %>%
-  bind_cols(train)
 
 confusion_multi <- table(pred_multiclass$.pred_class, pred_multiclass$rating)
-confusionMatrix(confusion_multi, positive = "1")
+Confusionmatrix2_in_multi <- confusionMatrix(confusion_multi, positive = "1")
+
+pred_multiclass_out <- predict(Multi_class_tree, new_data = test3, type="class") %>%
+  bind_cols(test3)
+
+confusion_multi_out <- table(pred_multiclass_out$.pred_class, pred_multiclass_out$rating)
+Confusionmatrix2_out_multi <- confusionMatrix(confusion_multi_out, positive = "1")
+
+Accuracy_2_in_mutli <- Confusionmatrix2_in_multi$overall['Accuracy']
+Accuracy_2_out_mutli <- Confusionmatrix2_out_multi$overall['Accuracy']
+
+
+#Random Forest#
+spec_rf_multi <- rand_forest(min_n = 20 , #minimum number of observations for split
+                       trees = 100, #of ensemble members (trees in forest)
+                       mtry = 2)  %>% #number of variables to consider at each split
+  set_mode("classification") %>% #can set to regression for numeric prediction
+  set_engine("ranger") #alternative engine / package: randomForest
+spec_rf_multi
+
+#FITTING THE RF MODEL
+set.seed(123) #NEED TO SET SEED WHEN FITTING OR BOOTSTRAPPED SAMPLES WILL CHANGE
+random_forest_multi <- spec_rf_multi %>%
+  fit(formula = factor(rating) ~ gross + budget + score + votes, data = train3) #%>%
+print(random_forest)
+
+#RANKING VARIABLE IMPORTANCE (CAN BE DONE WITH OTHER MODELS AS WELL)
+set.seed(123) #NEED TO SET SEED WHEN FITTING OR BOOTSTRAPPED SAMPLES WILL CHANGE
+rand_forest(min_n = 20 , #minimum number of observations for split
+            trees = 100, #of ensemble members (trees in forest)
+            mtry = 2)  %>% #number of variables to consider at each split
+  set_mode("classification") %>%
+  set_engine("ranger", importance = "impurity") %>%
+  fit(formula = factor(rating) ~ gross + budget + score + votes, data = train3) %>%
+  vip() #FROM VIP PACKAGE - ONLY WORKS ON RANGER FIT DIRECTLY
+
+#GENERATE IN-SAMPLE PREDICTIONS ON THE TRAIN SET AND COMBINE WITH TRAIN DATA
+pred_class_rf_in_multi <- predict(random_forest_multi, new_data = train3, type="class") %>%
+  bind_cols(train3) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+
+
+#GENERATE IN-SAMPLE CONFUSION MATRIX AND DIAGNOSTICS
+confusion_in_multi <- table(pred_class_rf_in_multi$.pred_class, pred_class_rf_in_multi$rating)
+Matrix_3_in <- confusionMatrix(confusion_in_multi) #FROM CARET PACKAGE
+
+#GENERATE OUT-OF-SAMPLE PREDICTIONS ON THE TEST SET AND COMBINE WITH TEST DATA
+pred_class_rf_out_multi <- predict(random_forest_multi, new_data = test3, type="class") %>%
+  bind_cols(test3)
+
+
+#GENERATE OUT-OF-SAMPLE CONFUSION MATRIX AND DIAGNOSTICS
+confusion_out_multi <- table(pred_class_rf_out_multi$.pred_class, pred_class_rf_out_multi$rating)
+ConfusionMatrix_3_Out <- confusionMatrix(confusion_out_multi) #FROM CARET PACKAGE
+
+Accuracy_3_in_multi <- Matrix_3_in$overall["Accuracy"]
+Accuracy_3_out_multi <- ConfusionMatrix_3_Out$overall["Accuracy"]
+
+Accuracy_3_in_multi
+
+#Tuneing Random FOrest#
+rand_forest(min_n = tune() , #minimum number of observations for split
+            trees = tune(), #of ensemble members (trees in forest)
+            mtry = tune())  %>% #number of variables to consider at each split
+  set_mode("classification") %>%
+  set_engine("ranger", importance = "impurity") %>%
+  
+rand_forest_spec <- rand_forest(min_n = tune(),
+                              trees = 500,
+                            mtry = tune()) %>%
+             set_engine("ranger") %>%
+             set_mode("classification")
+
+
+#Table Multi Class#
+TABLE_MultiClass <- as.table(matrix(c(Accuracy_1_in_mutli,Accuracy_2_in_mutli,Accuracy_3_in_multi,Accuracy_1_out_mutli,Accuracy_2_out_mutli,Accuracy_3_out_multi), ncol=3, byrow=TRUE))
+colnames(TABLE_MultiClass) <- c('Model 1','Model 2', 'Model 3')
+rownames(TABLE_MultiClass) <- c('Accuracy_IN', 'Accuracy_OUT')
+TABLE_MultiClass
 
 

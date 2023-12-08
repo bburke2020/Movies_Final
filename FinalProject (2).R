@@ -246,12 +246,12 @@ reg_spec <- decision_tree(min_n = 20 , #minimum number of observations for split
                             cost_complexity = 0.01)  %>% #regularization parameter
   set_engine("rpart") %>%
   set_mode("regression")
-print(class_spec)
+print(reg_spec)
 
 #ESTIMATING THE MODEL (CAN BE DONE IN ONE STEP ABOVE WITH EXTRA %>%)
 rg_fmla <- gross ~ rating + genre + score + votes + runtime + budget
-reg_tree <- class_spec %>%
-  fit(formula = class_fmla, data = train)
+reg_tree <- reg_spec %>%
+  fit(formula = rg_fmla, data = train)
 print(reg_tree)
 
 #VISUALIZING THE CLASSIFICATION TREE MODEL:
@@ -498,6 +498,17 @@ pred_class16 <- predict(class_tree16, new_data = train2, type="class") %>%
   bind_cols(train2) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
 
 pred_prob16 <- predict(class_tree16, new_data = train2, type="prob") %>%
-  bind_cols(test)
+  bind_cols(train2)
 confusion <- table(pred_class16$.pred_class, pred_class16$Winner)
 confusionMatrix(confusion, positive = "1")
+
+
+pred_class16out <- predict(class_tree16, new_data = test2, type="class") %>%
+  bind_cols(test2) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+
+pred_prob16out <- predict(class_tree16, new_data = test2, type="prob") %>%
+  bind_cols(test2)
+confusion <- table(pred_class16out$.pred_class, pred_class16out$Winner)
+confusionMatrix(confusion, positive = "1")
+
+

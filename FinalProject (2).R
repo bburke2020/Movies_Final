@@ -363,7 +363,7 @@ Oscars<- merged_2
 
 
 #Classification#
-set.seed(120)
+set.seed(111)
 split<-initial_split(Oscars, prop=.7)
 train2<-training(split)
 holdout2<-testing(split)
@@ -384,18 +384,21 @@ Test_df<-Model_13$df.null-Model_13$df.residual #difference in degrees of freedom
 Predictions_13_In <- predict(Model_13, train2, type = "response")
 Predictions_13_Out <- predict(Model_13, test2, type = "response")
 
-confusion<-table(Predictions_13_In, train2$Winner == 1)
+confusion1_in<-table(Predictions_13_In, train2$Winner == 1)
 confusion
 
-confusion_out<-table(Predictions_13_Out, test2$Winner == 1)
+confusion1_out<-table(Predictions_13_Out, test2$Winner == 1)
 
-confusionMatrix(confusion, positive='TRUE')
+confusionMatrix(confusion1_in, positive='TRUE')
 confusionMatrix(table(Predictions_13_In >= 0.5, train2$Winner == 1), positive='TRUE')
 
 confusionMatrix(confusion_out, positive='TRUE')
 confusionMatrix(table(Predictions_13_Out >= 0.5, test2$Winner == 1), positive='TRUE')
 
-
+Confusion13_in <- confusionMatrix(table(Predictions_13_In >= 0.5, train2$Winner == 1), positive='TRUE') 
+Accuracy_13_in <- Confusion13_in$overall['Accuracy']
+Confusion13_out <- confusionMatrix(table(Predictions_13_Out >= 0.5, test2$Winner == 1), positive='TRUE') 
+Accuracy_13_out <- Confusion13_out$overall['Accuracy']
 #Porbit Model#
 Model_14 <- glm(Winner ~ budget + gross + votes + score + runtime, data = train2, family = binomial(link="probit"))
 summary(Model_14)
@@ -471,10 +474,12 @@ SVM_Retune15<- svm(Winner ~ budget + gross + votes + score + runtime,
                    coef0 = TUNE$best.parameters$coef0,
                    cost = TUNE$best.parameters$cost,
                    scale = FALSE)
-(E_IN_RETUNE<-1-mean(predict(SVM_Retune15, train2)==train2$Winner))
+(E_IN_RETxUNE<-1-mean(predict(SVM_Retune15, train2)==train2$Winner))
 (E_OUT_RETUNE<-1-mean(predict(SVM_Retune15, test2)==test2$Winner))
 
-
+Accuracy_15_in <- 1-(E_IN_RETUNE<-1-mean(predict(SVM_Retune15, train2)==train2$Winner))
+Accuracy_15_in
+Accuracy_15_out <- 1-(E_OUT_RETUNE<-1-mean(predict(SVM_Retune15, test2)==test2$Winner))
 #Classfication Tree#
 library(rpart.plot)
 class_spec <- decision_tree(min_n = 20 , #minimum number of observations for split
@@ -499,8 +504,8 @@ pred_class16 <- predict(class_tree16, new_data = train2, type="class") %>%
 
 pred_prob16 <- predict(class_tree16, new_data = train2, type="prob") %>%
   bind_cols(train2)
-confusion <- table(pred_class16$.pred_class, pred_class16$Winner)
-confusionMatrix(confusion, positive = "1")
+confusion_16 <- table(pred_class16$.pred_class, pred_class16$Winner)
+confusionMatrix(confusion_16, positive = "1")
 
 
 pred_class16out <- predict(class_tree16, new_data = test2, type="class") %>%
@@ -508,7 +513,214 @@ pred_class16out <- predict(class_tree16, new_data = test2, type="class") %>%
 
 pred_prob16out <- predict(class_tree16, new_data = test2, type="prob") %>%
   bind_cols(test2)
-confusion <- table(pred_class16out$.pred_class, pred_class16out$Winner)
+confusion_16_out <- table(pred_class16out$.pred_class, pred_class16out$Winner)
 confusionMatrix(confusion, positive = "1")
+
+Confusion_16_in <- confusionMatrix(confusion_16, positive = "1")
+Accuracy_16_in <- Confusion_16_in$overall['Accuracy']
+Accuracy_16_in
+Confusion_16_out <- confusionMatrix(confusion_16_out, positive = "1")
+Accuracy_16_out <- Confusion_16_out$overall['Accuracy']
+#Gradient Boosted#
+Model_ <- factor(Winner) ~ budget + gross + votes + score + runtime
+boosted_forest <- boost_tree(min_n = NULL, #minimum number of observations for split
+                            tree_depth = NULL, #max tree depth
+                            trees = 100, #number of trees
+                            mtry = NULL, #number of predictors selected at each split 
+                            sample_size = NULL, #amount of data exposed to fitting
+                            learn_rate = NULL, #learning rate for gradient descent
+                            loss_reduction = NULL, #min loss reduction for further split
+                            stop_iter = NULL)  %>% #maximum iteration for convergence
+  set_engine("xgboost") %>%
+  set_mode("classification") %>%
+  fit(Model_, train2)
+
+
+
+#GENERATE IN-SAMPLE PREDICTIONS ON THE TRAIN SET AND COMBINE WITH TRAIN DATA
+pred_class_xb_in <- predict(boosted_forest, new_data = train2, type="class") %>%
+  bind_cols(train2) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+
+#GENERATE IN-SAMPLE CONFUSION MATRIX AND DIAGNOSTICS
+confusion_17 <- table(pred_class_xb_in$.pred_class, pred_class_xb_in$Winner)
+confusionMatrix(confusion) #FROM CARET PACKAGE
+
+#GENERATE OUT-OF-SAMPLE PREDICTIONS ON THE TEST SET AND COMBINE WITH TEST DATA
+pred_class_xb_out <- predict(boosted_forest, new_data = test2, type="class") %>%
+  bind_cols(test2) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+
+#GENERATE OUT-OF-SAMPLE CONFUSION MATRIX AND DIAGNOSTICS
+confusion_17_Out <- table(pred_class_xb_out$.pred_class, pred_class_xb_out$Winner)
+confusionMatrix(confusion) #FROM CARET PACKAGE
+
+Confusion_17_in <- confusionMatrix(confusion_17, positive = "1")
+Accuracy_17_in <- Confusion_17_in$overall['Accuracy']
+Accuracy_17_in
+confusion_17out <- confusionMatrix(confusion_17_Out, positive = "1")
+Accuracy_17_out <- confusion_17out$overall['Accuracy']
+
+
+#Tuned#
+
+boost_spec <- boost_tree(
+  trees = 500,
+  learn_rate = tune(),
+  tree_depth = tune(),
+  sample_size = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("xgboost") 
+  
+tunegrid_boost <- grid_regular(parameters(boost_spec), levels = 2)
+
+tune_results_boost <- tune_grid(
+  boost_spec,
+  Model_,
+  resamples = vfold_cv(train2, v = 6),
+  grid = tunegrid_boost,
+  metrics = metric_set(accuracy)
+)
+
+best_params_boost <- select_best(tune_results_boost)
+final_spec_boost <- finalize_model(boost_spec, best_params_boost)
+
+final_model_boost <- final_spec_boost %>% fit(Model_, data = train2)
+
+pred_class_xb_outtune <- predict(final_model_boost, new_data = test2, type="class") %>%
+  bind_cols(test2) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+
+#GENERATE OUT-OF-SAMPLE CONFUSION MATRIX AND DIAGNOSTICS
+confusion_17_Outtune <- table(pred_class_xb_outtune$.pred_class, pred_class_xb_outtune$Winner)
+confusionMatrix(confusion_17_Outtune)
+
+
+#Table#
+TABLE_Class <- as.table(matrix(c(Accuracy_13_in,Accuracy_15_in,Accuracy_16_in,Accuracy_17_in,Accuracy_13_out,Accuracy_15_out,Accuracy_16_out,Accuracy_17_out), ncol=4, byrow=TRUE))
+colnames(TABLE_Class) <- c('Model 13','Model 15', 'Model 16', 'Model 17')
+rownames(TABLE_Class) <- c('Accuracy_IN', 'Accuracy_OUT')
+TABLE_Class
+
+#Validation#
+Confusion_1_Val<- confusionMatrix(table(predict(Model_13, validation2, type = "response") >= 0.5, validation2$Winner == 1), positive='TRUE')
+Accuracy_1_Val <- Confusion_1_Val$overall['Accuracy']
+Accuracy_2_Val <- 1-(1-mean(predict(SVM_Retune15, validation2)==validation2$Winner))
+pred_class16val <- predict(class_tree16, new_data = validation2, type="class") %>%
+  bind_cols(validation2) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+pred_prob16val <- predict(class_tree16, new_data = validation2, type="prob") %>%
+  bind_cols(validation2)
+confusion_16_val <- table(pred_class16val$.pred_class, pred_class16val$Winner)
+Confusion16val <- confusionMatrix(confusion_16_val, positive = "1")
+Accuracy_3_Val <- Confusion16val$overall['Accuracy']
+
+
+#GENERATE OUT-OF-SAMPLE PREDICTIONS ON THE TEST SET AND COMBINE WITH TEST DATA
+pred_class_xb_val <- predict(boosted_forest, new_data = validation2, type="class") %>%
+  bind_cols(validation2) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+
+#GENERATE OUT-OF-SAMPLE CONFUSION MATRIX AND DIAGNOSTICS
+confusion_17_Val <- table(pred_class_xb_val$.pred_class, pred_class_xb_val$Winner)
+CONFUSION_17Val <- confusionMatrix(confusion_17_Val) #FROM CARET PACKAGE
+Accuracy_4_Val <- CONFUSION_17Val$overall['Accuracy']
+confusionMatrix(confusion_17_Val)
+
+#Model 4 is best#
+str(movies_1)
+
+
+#Multi-Class#
+
+movies_2 <- movies_1 %>%
+  mutate(rating = case_when(
+    rating == "PG" ~ 1,
+    rating == "PG-13" ~ 2,
+    rating == "R" ~ 3,
+    TRUE ~ 0  # For everything else
+  ))
+
+set.seed(120)
+split_3<-initial_split(movies_2, prop=.7)
+train3<-training(split_3)
+holdout3<-testing(split_3)
+
+split_4 <- initial_split(holdout3, prop = .5)
+test3 <- training(split_4)
+validation3 <- testing(split_4)
+
+
+kern_type<-"radial" #SPECIFY KERNEL TYPE
+
+#BUILD SVM CLASSIFIER
+SVM_MultiClass<- svm(rating ~ gross + budget + score + runtime + votes, 
+                data = train3, 
+                type = "C-classification", #set to "eps-regression" for numeric prediction
+                kernel = kern_type,
+                cost=1,                   #REGULARIZATION PARAMETER
+                gamma = 1/(ncol(training)-1), #DEFAULT KERNEL PARAMETER
+                coef0 = 0,                    #DEFAULT KERNEL PARAMETER
+                degree=2,                     #POLYNOMIAL KERNEL PARAMETER
+                scale = FALSE)  
+print(SVM_MultiClass)
+(E_IN_MultiClass<-1-mean(predict(SVM_MultiClass, train3)==train3$rating))
+(E_OUT_MultiClass<-1-mean(predict(SVM_MultiClass, test3)==test3$rating))
+
+#Tune SVM Model#
+tune_control<-tune.control(cross=10) #SET K-FOLD CV PARAMETERS
+TUNE_Class <- tune.svm(x = train3[,6],
+                 y = train3$rating,
+                 type = "C-classification",
+                 kernel = kern_type,
+                 tunecontrol=tune_control,
+                 cost=c(.01, .1, 1, 10, 100, 1000), #REGULARIZATION PARAMETER
+                 gamma = 1/(ncol(training)-1), #KERNEL PARAMETER
+                 coef0 = 0,           #KERNEL PARAMETER
+                 degree = 2)          #POLYNOMIAL KERNEL PARAMETER
+
+ctrl <- trainControl(method = "cv",   # Use cross-validation
+                     number = 5)       # Number of folds
+
+# Define the parameter grid for tuning
+tune_grid <- expand.grid(C = c(0.01, 0.1, 1, 10),
+                         kernel = "radial")  # You can also try other kernel functions
+
+
+svm_class_tune <- train(factor(rating) ~ gross + budget + score + runtime + votes,
+                        data = train,
+                        method = "svm",
+                        trControl = ctrl,
+                        tuneGrid = tune_grid)
+
+
+#Class Tree#
+library(rpart.plot)
+
+Multi_tree <- rpart(factor(rating) ~ gross + votes + runtime + score, data = train3, method = "class")
+pred_multi <- predict(Multi_tree, data = test3, type = "class")
+conf_matrix <- confusionMatrix(pred_multi, test3$rating)
+
+multiclass_spec <- decision_tree(min_n = 20 , #minimum number of observations for split
+                            tree_depth = 30, #max tree depth
+                            cost_complexity = 0.01)  %>% #regularization parameter
+  set_engine("rpart") %>%
+  set_mode("classification")
+print(class_spec)
+str(train)
+
+multi_class_m1<- factor(rating) ~ gross + votes + runtime + score
+Multi_class_tree <- multiclass_spec%>%
+  fit(formula = multi_class_m1, data = train)
+print(Multi_class_tree)
+
+Multi_class_tree$fit %>%
+  rpart.plot(type = 4, extra = 2, roundint = FALSE)
+
+plotcp(Multi_class_tree$fit)
+
+pred_multiclass <- predict(Multi_class_tree, new_data = train, type="class") %>%
+  bind_cols(train) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+
+pred_probmulti <- predict(Multi_class_tree, new_data = train, type="prob") %>%
+  bind_cols(train)
+
+confusion_multi <- table(pred_multiclass$.pred_class, pred_multiclass$rating)
+confusionMatrix(confusion_multi, positive = "1")
 
 

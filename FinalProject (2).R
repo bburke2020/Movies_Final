@@ -801,4 +801,20 @@ colnames(TABLE_MultiClass) <- c('Model 1','Model 2', 'Model 3')
 rownames(TABLE_MultiClass) <- c('Accuracy_IN', 'Accuracy_OUT')
 TABLE_MultiClass
 
+#Validation#
+Accuracy_1_ValMulti <- 1-(1-mean(predict(SVM_MultiClass, validation3)==validation3$rating))
+pred_class2val <- predict(Multi_class_tree, new_data = validation3, type="class") %>%
+  bind_cols(validation3) #ADD CLASS PREDICTIONS DIRECTLY TO TEST DATA
+confusion_2_val <- table(pred_class2val$.pred_class, pred_class2val$rating)
+Confusion2val <- confusionMatrix(confusion_2_val, positive = "1")
+Accuracy_2_ValMulti <- Confusion2val$overall['Accuracy']
+pred_class3val <- predict(random_forest_multi, new_data = validation3, type = "class") %>%
+  bind_cols(validation3)
+confusion_3_val <- table(pred_class3val$.pred_class, pred_class3val$rating)
+Confusion3val <- confusionMatrix(confusion_3_val, positive = "1")
+Accuracy_3_ValMulti <- Confusion3val$overall["Accuracy"]
 
+TABLE_MultiVal<- as.table(matrix(c(Accuracy_1_ValMulti,Accuracy_2_ValMulti,Accuracy_3_ValMulti), ncol=3, byrow=TRUE))
+colnames(TABLE_MultiVal) <- c('Model 1','Model 2', 'Model 3')
+rownames(TABLE_MultiVal) <- c('Accuracy_Val')
+TABLE_MultiVal
